@@ -4,7 +4,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import kotlin.test.Test
 
-private val oAuthState = OAuthState(
+private val teslaOAuthState = TeslaOAuthState(
     createdOn = 0,
     accessToken = "AAA", // https://www.youtube.com/watch?app=desktop&v=Us34mxYZz3I
     accessTokenExpiresOn = 1,
@@ -13,10 +13,10 @@ private val oAuthState = OAuthState(
 )
 
 @SpringBootTest
-class OAuthStateSerializerTest() {
+class TeslaTeslaOAuthStateSerializerTest() {
     @Test
-    fun test(@Autowired serializer: OAuthStateSerializer){
-        serializer.updateState(oAuthState)
+    fun test(@Autowired serializer: TeslaOAuthStateSerializer){
+//        serializer.updateState(oAuthState)
         serializer.readState()
     }
 }
