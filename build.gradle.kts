@@ -20,6 +20,8 @@ repositories {
 }
 
 dependencies {
+// https://mvnrepository.com/artifact/com.fasterxml.jackson.module/jackson-module-jaxb-annotations
+    implementation("com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.18.0")
     implementation("com.google.guava:guava:33.3.1-jre")
 //    implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
     implementation("org.springframework.boot:spring-boot-starter-web")
