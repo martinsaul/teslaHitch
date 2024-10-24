@@ -1,12 +1,12 @@
 package io.saul.teslahitch.service
 
-import org.junit.jupiter.api.Assertions.*
+import io.saul.teslahitch.service.oauth.TeslaOAuthService
 import kotlin.test.Test
 
 class TeslaOAuthServiceTest {
 
     @Test
     fun test(){
-        TeslaOAuthService(clientId = "", clientSecret = "", redirectUri = "").gen()
+        TeslaOAuthService(clientId = "aaaa", redirectUri = "AAAA").funfun()
     }
 }
