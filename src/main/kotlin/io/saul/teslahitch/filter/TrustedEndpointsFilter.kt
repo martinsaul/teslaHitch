@@ -1,22 +1,21 @@
 package io.saul.teslahitch.filter
 
-import jakarta.servlet.FilterChain
-import jakarta.servlet.ServletException
-import jakarta.servlet.ServletRequest
-import jakarta.servlet.ServletResponse
+import jakarta.servlet.*
 import org.apache.catalina.connector.RequestFacade
 import org.apache.catalina.connector.ResponseFacade
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import java.io.IOException
-import jakarta.servlet.Filter;
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
+import java.io.IOException
 
 @Component
 @Order(1)
-class TrustedEndpointsFilter internal constructor(@Value("\${server.trustedPort:null}") trustedPort: String?, @Value("\${server.trustedPathPrefix:null}") trustedPathPrefix: String?) :
+class TrustedEndpointsFilter internal constructor(
+    @Value("\${server.trustedPort:null}") trustedPort: String?,
+    @Value("\${server.trustedPathPrefix:null}") trustedPathPrefix: String?
+) :
     Filter {
     private var trustedPortNum = 0
     private var trustedPathPrefix: String? = null

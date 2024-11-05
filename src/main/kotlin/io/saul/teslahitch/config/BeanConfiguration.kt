@@ -19,7 +19,8 @@ class BeanConfiguration {
         return Jackson2ObjectMapperBuilder()
             .modules(
 //                AfterburnerModule(),
-                KotlinModule.Builder().build())
+                KotlinModule.Builder().build()
+            )
             .build<ObjectMapper>()
             .setVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.ANY)
             .setVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY)
