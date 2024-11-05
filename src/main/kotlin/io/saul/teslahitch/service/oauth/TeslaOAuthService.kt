@@ -52,7 +52,7 @@ class TeslaOAuthService(
             responseObject = TokenResponse::class.java
         )
         // TODO Move this into a dedicated class. Maybe.
-        val timeStamp = ZonedDateTime.now(UTC) // Lock it into UTC to avoid any moving TimeZone shenanigans.
+        val timeStamp = nowInUtc() // Lock it into UTC to avoid any moving TimeZone shenanigans.
         serializer.updateState(
             state = TeslaOAuthState(
                 createdOn = timeStamp.toEpochSecond(),
@@ -67,7 +67,7 @@ class TeslaOAuthService(
     fun getAuthStatus(): AuthStatus {
         val state = serializer.readState() ?: return AuthStatus(state = NotAuthenticated)
 
-        val nowWithExpirationBuffer = ZonedDateTime.now().plusHours(1).toEpochSecond()
+        val nowWithExpirationBuffer = nowInUtc().plusHours(1).toEpochSecond()
 
         return if(state.accessTokenExpiresOn > nowWithExpirationBuffer){
             logger.trace("Existing access token is valid.")
@@ -81,6 +81,8 @@ class TeslaOAuthService(
             AuthStatus(state = NotAuthenticated)
         }
     }
+
+    private fun nowInUtc(): ZonedDateTime = ZonedDateTime.now(UTC)
 
     fun rearm() {
         TODO("Not yet implemented")
