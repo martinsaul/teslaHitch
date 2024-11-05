@@ -8,4 +8,4 @@ data class TeslaOAuthState(
     val accessTokenExpiresOn: Long, //UNIX Timestamp
     val refreshToken: String,
     val refreshTokenExpiresOn: Long, //UNIX Timestamp
-): Serializable
+) : Serializable

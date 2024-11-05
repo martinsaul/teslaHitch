@@ -9,15 +9,17 @@ import java.io.*
 class TeslaProxyRuntimeService {
 
     @PostConstruct
-    fun init() {TeslaProxyRuntime().run()}
+    fun init() {
+        TeslaProxyRuntime().run()
+    }
 
     class TeslaProxyRuntime : Runnable {
 
         val runtime: Runtime = Runtime.getRuntime()
         val process: Process
 
-        public constructor() {
-            this.process = runtime.exec(kotlin.arrayOf("ls", "-la"))
+        constructor() {
+            this.process = runtime.exec(arrayOf("ls", "-la"))
         }
 
         override fun run() {

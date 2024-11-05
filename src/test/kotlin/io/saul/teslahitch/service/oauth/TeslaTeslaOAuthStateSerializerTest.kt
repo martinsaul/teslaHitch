@@ -13,9 +13,9 @@ private val teslaOAuthState = TeslaOAuthState(
 )
 
 @SpringBootTest
-class TeslaTeslaOAuthStateSerializerTest() {
+class TeslaTeslaOAuthStateSerializerTest {
     @Test
-    fun test(@Autowired serializer: TeslaOAuthStateSerializer){
+    fun test(@Autowired serializer: TeslaOAuthStateSerializer) {
 //        serializer.updateState(oAuthState)
         serializer.readState()
     }

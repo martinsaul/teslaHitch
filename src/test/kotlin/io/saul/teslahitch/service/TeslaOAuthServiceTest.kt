@@ -9,7 +9,7 @@ class TeslaOAuthServiceTest {
     private val logger = LoggerFactory.getLogger(TeslaOAuthService::class.java)
 
     @Test
-    fun test(){
-        val url = TeslaOAuthService(iClientId = "aaaa", iRedirectUri = "AAAA").funfun()
+    fun test() {
+//        val url = TeslaOAuthService(iClientId = "aaaa", iRedirectUri = "AAAA", iClientSecret = "AAAA", ).funfun()
     }
 }
