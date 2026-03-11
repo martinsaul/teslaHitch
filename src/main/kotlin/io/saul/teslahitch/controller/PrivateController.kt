@@ -1,52 +1,56 @@
 package io.saul.teslahitch.controller
 
-import io.saul.teslahitch.model.AuthStatus
-import io.saul.teslahitch.model.AuthStatus.AuthenticationState.*
-import io.saul.teslahitch.model.Welcome
-import io.saul.teslahitch.service.oauth.TeslaApiLocale
+import io.saul.teslahitch.service.TeslaProxyClient
 import io.saul.teslahitch.service.oauth.TeslaOAuthService
 import jakarta.servlet.http.HttpServletResponse
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.servlet.view.RedirectView
+import org.slf4j.LoggerFactory
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.*
 
 @RestController
-class PrivateController(val teslaOAuthService: TeslaOAuthService) {
+class PrivateController(
+    private val oAuthService: TeslaOAuthService,
+    private val proxyClient: TeslaProxyClient
+) {
+    private val logger = LoggerFactory.getLogger(PrivateController::class.java)
 
     @GetMapping("/internal/")
-    fun root(): Welcome {
-        return Welcome()
+    fun root(): Map<String, Any> {
+        return mapOf(
+            "service" to "teslaHitch",
+            "authenticated" to oAuthService.isAuthenticated()
+        )
     }
 
-    @GetMapping("/internal/authenticate")
-    fun authenticate(): RedirectView {
-        return RedirectView(teslaOAuthService.getAuthenticationUrl(), false)
-    }
-
-    @GetMapping("/internal/rearm")
-    fun rearm(): Welcome {
-        teslaOAuthService.rearm()
-        return Welcome()
+    @GetMapping("/internal/auth")
+    fun startAuth(response: HttpServletResponse) {
+        response.sendRedirect(oAuthService.getAuthenticationUrl())
     }
 
     @GetMapping("/internal/callback")
     fun callback(
-        @RequestParam(name = "code") code: String,
-        @RequestParam(name = "locale") locale: String,
-        @RequestParam(name = "issuer") issuer: String,
-    ): RedirectView {
-        teslaOAuthService.registerCallbackCode(code, TeslaApiLocale.map(locale)) ?: "Huh?"
-        return RedirectView("status")
+        @RequestParam("code") code: String,
+        @RequestParam("state") state: String
+    ): Map<String, String> {
+        logger.info("Received OAuth callback, exchanging code for token...")
+        oAuthService.exchangeCodeForToken(code)
+        return mapOf("status" to "authenticated")
     }
 
-    @GetMapping("/internal/status")
-    fun authStatus(response: HttpServletResponse): Any {
-        val status = teslaOAuthService.getAuthStatus()
-        return when(status.state) {
-            NotAuthenticated -> RedirectView("authenticate")
-            ValidAccessToken -> status
-            ValidRefreshToken -> RedirectView("rearm")
-        }
+    @PostMapping("/internal/vehicles/{vin}/command/{endpoint}")
+    fun sendCommand(
+        @PathVariable vin: String,
+        @PathVariable endpoint: String,
+        @RequestBody(required = false) body: String?
+    ): ResponseEntity<String> {
+        return proxyClient.sendCommand(vin, endpoint, body)
+    }
+
+    @GetMapping("/internal/vehicles/{vin}/{endpoint}")
+    fun getVehicleData(
+        @PathVariable vin: String,
+        @PathVariable endpoint: String
+    ): ResponseEntity<String> {
+        return proxyClient.sendCommand(vin, endpoint)
     }
 }

@@ -1,17 +1,15 @@
 package io.saul.teslahitch.service.oauth
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.common.hash.Hashing
-import io.saul.teslahitch.model.AuthStatus
-import io.saul.teslahitch.model.AuthStatus.AuthenticationState.*
-import io.saul.teslahitch.model.TokenRequest
-import io.saul.teslahitch.model.TokenResponse
-import io.saul.teslahitch.service.HttpClientService
-import io.saul.teslahitch.service.oauth.TeslaOAuthService.Constants.generateOAuthLoginUrl
-import io.saul.teslahitch.service.oauth.TeslaOAuthService.Constants.tokenEndpoint
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpEntity
+import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
-import java.net.URI
+import org.springframework.util.LinkedMultiValueMap
+import org.springframework.web.client.RestTemplate
 import java.net.URLEncoder
 import java.security.SecureRandom
 import java.time.ZoneOffset.UTC
@@ -21,114 +19,139 @@ private const val STANDARD_REFRESH_TOKEN_DURATION_IN_MONTHS = 3L
 
 @Service
 class TeslaOAuthService(
-    @Value("\${tesla.oauth.clientId:null}") iClientId: String?,
-    @Value("\${tesla.oauth.clientSecret:null}") iClientSecret: String?,
-    @Value("\${tesla.oauth.redirectUri:null}") iRedirectUri: String?,
-    val serializer: TeslaOAuthStateSerializer,
-    val httpClient: HttpClientService,
+    @Value("\${tesla.oauth.clientId}") private val clientId: String,
+    @Value("\${tesla.oauth.clientSecret}") private val clientSecret: String,
+    @Value("\${tesla.oauth.redirectUri}") private val redirectUri: String,
+    private val serializer: TeslaOAuthStateSerializer,
+    private val restTemplate: RestTemplate,
+    private val objectMapper: ObjectMapper
 ) {
     private val logger = LoggerFactory.getLogger(TeslaOAuthService::class.java)
-    private val clientId: String = iClientId ?: throw IllegalArgumentException("Client ID is a required value.")
-    private val clientSecret: String =
-        iClientSecret ?: throw IllegalArgumentException("Client Secret is a required value.")
-    private val redirectUri: String =
-        iRedirectUri ?: throw IllegalArgumentException("Redirect URI is a required value.")
 
-    fun getAuthenticationUrl(): String {
-        return generateOAuthLoginUrl(clientId = clientId, redirectUri = redirectUri)
-    }
+    companion object {
+        private const val AUTH_URL = "https://auth.tesla.com/oauth2/v3"
+        private const val TOKEN_URL = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token"
+        private val random = SecureRandom()
 
-    fun registerCallbackCode(callbackCode: String, locale: TeslaApiLocale = TeslaApiLocale.NAAP) {
-        val tokenRequest = TokenRequest(
-            grantType = "authorization_code",
-            clientId = clientId,
-            clientSecret = clientSecret,
-            code = callbackCode,
-            redirectUri = redirectUri
-        )
-        val response = httpClient.postJson(
-            destination = URI.create(tokenEndpoint),
-            payload = tokenRequest,
-            responseObject = TokenResponse::class.java
-        )
-        // TODO Move this into a dedicated class. Maybe.
-        val timeStamp = nowInUtc() // Lock it into UTC to avoid any moving TimeZone shenanigans.
-        serializer.updateState(
-            state = TeslaOAuthState(
-                createdOn = timeStamp.toEpochSecond(),
-                accessToken = response.accessToken,
-                accessTokenExpiresOn = timeStamp.plusSeconds(response.expiresIn).toEpochSecond(),
-                refreshToken = response.refreshToken,
-                refreshTokenExpiresOn = timeStamp.plusMonths(STANDARD_REFRESH_TOKEN_DURATION_IN_MONTHS).toEpochSecond()
-            )
-        )
-    }
-
-    fun getAuthStatus(): AuthStatus {
-        val state = serializer.readState() ?: return AuthStatus(state = NotAuthenticated)
-
-        val nowWithExpirationBuffer = nowInUtc().plusHours(1).toEpochSecond()
-
-        return if(state.accessTokenExpiresOn > nowWithExpirationBuffer){
-            logger.trace("Existing access token is valid.")
-            AuthStatus(state = ValidAccessToken, state.accessTokenExpiresOn)
-        } else if(state.refreshTokenExpiresOn > nowWithExpirationBuffer){
-            logger.info("Existing access token is stale, refresh token is still valid.")
-            AuthStatus(state = ValidRefreshToken, state.refreshTokenExpiresOn)
-        } else {
-            logger.warn("Existing authentication is stale. Deleting file.")
-            serializer.wipeState()
-            AuthStatus(state = NotAuthenticated)
-        }
-    }
-
-    private fun nowInUtc(): ZonedDateTime = ZonedDateTime.now(UTC)
-
-    fun rearm() {
-        TODO("Not yet implemented")
-    }
-
-    private object Constants {
-        private const val apiPath: String = "https://auth.tesla.com/oauth2/v3"
-        const val tokenEndpoint = "$apiPath/token"
-        private val random: SecureRandom = SecureRandom()
-        private val scopeList: List<String> = listOf(
+        private val SCOPES = listOf(
             "openid",
             "offline_access",
             "user_data",
             "vehicle_device_data",
             "vehicle_cmds",
             "vehicle_charging_cmds",
+            "vehicle_location",
             "energy_device_data",
             "energy_cmds"
         )
 
-        private var lastKey: String = genStartingString()
+        private fun generateNonce(): String {
+            val bytes = ByteArray(32)
+            random.nextBytes(bytes)
+            return Hashing.sha256().hashBytes(bytes).toString()
+        }
+    }
 
-        private fun genStartingString(): String {
-            val byteArray = ByteArray(256)
-            random.nextBytes(byteArray)
-            return Hashing.sha256().hashBytes(byteArray).toString()
+    fun getAuthenticationUrl(): String {
+        val nonce = generateNonce()
+        val state = generateNonce()
+        val scope = URLEncoder.encode(SCOPES.joinToString(" "), "UTF-8").replace("+", "%20")
+        return "$AUTH_URL/authorize" +
+                "?client_id=$clientId" +
+                "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
+                "&locale=en-US" +
+                "&prompt=login" +
+                "&response_type=code" +
+                "&scope=$scope" +
+                "&state=$state" +
+                "&nonce=$nonce"
+    }
+
+    fun exchangeCodeForToken(code: String, locale: TeslaApiLocale = TeslaApiLocale.NAAP) {
+        logger.info("Exchanging authorization code for access token...")
+
+        val headers = HttpHeaders()
+        headers.contentType = MediaType.APPLICATION_FORM_URLENCODED
+
+        val body = LinkedMultiValueMap<String, String>()
+        body.add("grant_type", "authorization_code")
+        body.add("client_id", clientId)
+        body.add("client_secret", clientSecret)
+        body.add("code", code)
+        body.add("redirect_uri", redirectUri)
+        body.add("audience", locale.url)
+
+        val request = HttpEntity(body, headers)
+        val response = restTemplate.postForEntity(TOKEN_URL, request, String::class.java)
+
+        if (!response.statusCode.is2xxSuccessful || response.body == null) {
+            throw RuntimeException("Token exchange failed: ${response.statusCode} - ${response.body}")
         }
 
-        private fun generateRandom256Characters(): String {
-            lastKey = Hashing.sha256().hashString(lastKey, Charsets.UTF_8).toString()
-            return lastKey
+        val json = objectMapper.readTree(response.body)
+        val now = System.currentTimeMillis()
+
+        val state = TeslaOAuthState(
+            createdOn = now,
+            accessToken = json.get("access_token").asText(),
+            accessTokenExpiresOn = now + (json.get("expires_in").asLong() * 1000),
+            refreshToken = json.get("refresh_token").asText(),
+            refreshTokenExpiresOn = now + (90L * 24 * 60 * 60 * 1000) // 3 months per Tesla docs // 30 days
+        )
+
+        serializer.updateState(state)
+        logger.info("OAuth tokens stored successfully.")
+    }
+
+    fun refreshAccessToken(locale: TeslaApiLocale = TeslaApiLocale.NAAP) {
+        val currentState = serializer.readState()
+            ?: throw IllegalStateException("No OAuth state found. Please authenticate first.")
+
+        logger.info("Refreshing access token...")
+
+        val headers = HttpHeaders()
+        headers.contentType = MediaType.APPLICATION_FORM_URLENCODED
+
+        val body = LinkedMultiValueMap<String, String>()
+        body.add("grant_type", "refresh_token")
+        body.add("client_id", clientId)
+        body.add("refresh_token", currentState.refreshToken)
+
+        val request = HttpEntity(body, headers)
+        val response = restTemplate.postForEntity(TOKEN_URL, request, String::class.java)
+
+        if (!response.statusCode.is2xxSuccessful || response.body == null) {
+            throw RuntimeException("Token refresh failed: ${response.statusCode} - ${response.body}")
         }
 
-        fun generateOAuthLoginUrl(clientId: String, redirectUri: String): String {
-            val nonce = generateRandom256Characters()
-            val state = generateRandom256Characters()
-            val scope = URLEncoder.encode(scopeList.joinToString(separator = " "), "utf-8").replace("+", "%20")
-            return "$apiPath/authorize" +
-                    "?client_id=$clientId" +
-                    "&redirect_uri=$redirectUri" +
-                    "&locale=en-US" +
-                    "&prompt=login" +
-                    "&response_type=code" +
-                    "&scope=$scope" +
-                    "&state=$state" +
-                    "&nonce=$nonce"
+        val json = objectMapper.readTree(response.body)
+        val now = System.currentTimeMillis()
+
+        val newState = TeslaOAuthState(
+            createdOn = now,
+            accessToken = json.get("access_token").asText(),
+            accessTokenExpiresOn = now + (json.get("expires_in").asLong() * 1000),
+            refreshToken = json.get("refresh_token")?.asText() ?: currentState.refreshToken,
+            refreshTokenExpiresOn = now + (90L * 24 * 60 * 60 * 1000) // 3 months per Tesla docs
+        )
+
+        serializer.updateState(newState)
+        logger.info("Access token refreshed successfully.")
+    }
+
+    fun getAccessToken(locale: TeslaApiLocale = TeslaApiLocale.NAAP): String {
+        val state = serializer.readState()
+            ?: throw IllegalStateException("Not authenticated. Visit /internal/auth to begin OAuth flow.")
+
+        if (System.currentTimeMillis() >= state.accessTokenExpiresOn) {
+            refreshAccessToken(locale)
+            return serializer.readState()!!.accessToken
         }
+
+        return state.accessToken
+    }
+
+    fun isAuthenticated(): Boolean {
+        return serializer.readState() != null
     }
 }

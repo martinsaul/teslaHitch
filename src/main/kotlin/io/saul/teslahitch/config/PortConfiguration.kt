@@ -34,7 +34,7 @@ class PortConfiguration {
 
 
     private fun additionalConnector(): Array<Connector>? {
-        if (StringUtils.isEmpty(this.trustedPort) || "null" == trustedPort) {
+        if (!StringUtils.hasText(this.trustedPort) || "null" == trustedPort) {
             return null
         }
 
