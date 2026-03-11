@@ -9,9 +9,9 @@ secrets:
 services:
   teslahitch:
     build: .
-    ports:
-      - "8080:8080"
-      - "8000:8000"
+    container_name: teslahitch
+    networks:
+      - traefik
     secrets:
       - tesla.oauth.clientId
       - tesla.oauth.clientSecret
@@ -21,11 +21,31 @@ services:
       - tesla.proxy.url=https://tesla_http_proxy:4443
     volumes:
       - config_data:/config
+    restart: unless-stopped
+    labels:
+      # Internal HTTP router for Home Assistant
+      - "traefik.enable=true"
+      - 'traefik.http.routers.teslahitch.rule=Host(`teslahitch.home.zenithnetwork.com`)'
+      - "traefik.http.routers.teslahitch.entrypoints=inhttps"
+      - "traefik.http.services.teslahitch.loadbalancer.server.port=8080"
+      - "traefik.http.services.teslahitch.loadbalancer.server.scheme=https"
+      # TCP passthrough for Tesla OAuth callback (preserves original cert)
+      - 'traefik.tcp.routers.teslahitch-callback.rule=HostSNI(`tesla.zenithnetwork.com`)'
+      - "traefik.tcp.routers.teslahitch-callback.entrypoints=outhttps"
+      - "traefik.tcp.routers.teslahitch-callback.tls.passthrough=true"
+      - "traefik.tcp.services.teslahitch-callback.loadbalancer.server.port=8080"
 
   tesla_http_proxy:
     image: tesla/vehicle-command:latest
-    ports:
-      - "4443:4443"
+    container_name: tesla_http_proxy
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - 'traefik.http.routers.teslaproxy.rule=Host(`teslaproxy.home.zenithnetwork.com`)'
+      - "traefik.http.routers.teslaproxy.entrypoints=inhttps"
+      - "traefik.http.services.teslaproxy.loadbalancer.server.port=4443"
+      - "traefik.http.services.teslaproxy.loadbalancer.server.scheme=https"
     environment:
       - TESLA_HTTP_PROXY_TLS_CERT=/config/tls-cert.pem
       - TESLA_HTTP_PROXY_TLS_KEY=/config/tls-key.pem
@@ -42,3 +62,7 @@ services:
 
 volumes:
   config_data:
+
+networks:
+  traefik:
+    external: true
