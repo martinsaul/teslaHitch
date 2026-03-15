@@ -1,5 +1,6 @@
 package io.saul.teslahitch.controller
 
+import io.saul.teslahitch.service.TeslaPartnerService
 import io.saul.teslahitch.service.TeslaProxyClient
 import io.saul.teslahitch.service.oauth.TeslaOAuthService
 import jakarta.servlet.http.HttpServletResponse
@@ -10,15 +11,18 @@ import org.springframework.web.bind.annotation.*
 @RestController
 class PrivateController(
     private val oAuthService: TeslaOAuthService,
-    private val proxyClient: TeslaProxyClient
+    private val proxyClient: TeslaProxyClient,
+    private val partnerService: TeslaPartnerService
 ) {
     private val logger = LoggerFactory.getLogger(PrivateController::class.java)
 
     @GetMapping("/internal/")
     fun root(): Map<String, Any> {
+        val authed = oAuthService.isAuthenticated()
         return mapOf(
             "service" to "teslaHitch",
-            "authenticated" to oAuthService.isAuthenticated()
+            "authenticated" to authed,
+            "message" to if (authed) "Connected to Tesla. Ready to hitch a ride." else "Not authenticated. Visit /internal/auth to connect your Tesla account."
         )
     }
 
@@ -34,7 +38,11 @@ class PrivateController(
     ): Map<String, String> {
         logger.info("Received OAuth callback, exchanging code for token...")
         oAuthService.exchangeCodeForToken(code)
-        return mapOf("status" to "authenticated")
+
+        logger.info("OAuth complete. Registering public key with Tesla...")
+        partnerService.registerPartner()
+
+        return mapOf("status" to "authenticated", "message" to "You're in! Tesla account connected and public key registered.")
     }
 
     @PostMapping("/internal/vehicles/{vin}/command/{endpoint}")
