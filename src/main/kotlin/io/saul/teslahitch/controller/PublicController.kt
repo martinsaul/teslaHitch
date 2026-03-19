@@ -2,6 +2,7 @@ package io.saul.teslahitch.controller
 
 import io.saul.teslahitch.service.CertificateService
 import io.saul.teslahitch.service.TeslaPartnerService
+import io.saul.teslahitch.service.oauth.TeslaOAuthService
 import io.saul.teslahitch.service.oauth.TeslaOAuthStateSerializer
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
@@ -15,6 +16,7 @@ import org.springframework.web.server.ResponseStatusException
 class PublicController(
     private val certificateService: CertificateService,
     private val oauthStateSerializer: TeslaOAuthStateSerializer,
+    private val oAuthService: TeslaOAuthService,
     private val partnerService: TeslaPartnerService,
     @Value("\${tesla.oauth.clientId:}") private val clientId: String,
     @Value("\${tesla.proxy.external.url:}") private val proxyExternalUrl: String,
@@ -60,7 +62,7 @@ class PublicController(
 
         return mapOf(
             "refresh_token" to state.refreshToken,
-            "access_token" to state.accessToken,
+            "access_token" to oAuthService.getAccessToken(),
             "expiration" to state.accessTokenExpiresOn,
             "client_id" to clientId,
             "proxy_url" to proxyExternalUrl,
