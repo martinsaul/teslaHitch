@@ -30,7 +30,7 @@ class TeslaOAuthService(
 
     companion object {
         private const val AUTH_URL = "https://auth.tesla.com/oauth2/v3"
-        private const val TOKEN_URL = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token"
+        private const val TOKEN_URL = "https://auth.tesla.com/oauth2/v3/token"
         private val random = SecureRandom()
 
         private val SCOPES = listOf(
@@ -80,6 +80,7 @@ class TeslaOAuthService(
         body.add("code", code)
         body.add("redirect_uri", redirectUri)
         body.add("audience", locale.url)
+        body.add("scope", SCOPES.joinToString(" "))
 
         val request = HttpEntity(body, headers)
         val response = restTemplate.postForEntity(TOKEN_URL, request, String::class.java)
