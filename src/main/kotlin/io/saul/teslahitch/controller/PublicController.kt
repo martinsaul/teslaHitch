@@ -65,6 +65,7 @@ class PublicController(
 
         return mapOf(
             "access_token" to accessToken,
+            "refresh_token" to state.refreshToken,
             "expiration" to state.accessTokenExpiresOn,
             "client_id" to clientId,
             "proxy_url" to proxyExternalUrl,
