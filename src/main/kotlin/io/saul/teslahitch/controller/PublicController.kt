@@ -57,12 +57,15 @@ class PublicController(
 
     @GetMapping("/api/ha/config", produces = [MediaType.APPLICATION_JSON_VALUE])
     fun haConfig(): Map<String, Any?> {
+        // Call getAccessToken() first — it may refresh and update the stored state
+        val accessToken = oAuthService.getAccessToken()
+        // Now read the (potentially updated) state so expiration is correct
         val state = oauthStateSerializer.readState()
             ?: throw ResponseStatusException(HttpStatus.PRECONDITION_FAILED, "OAuth not completed. Visit /internal/auth on the trusted port first.")
 
         return mapOf(
             "refresh_token" to state.refreshToken,
-            "access_token" to oAuthService.getAccessToken(),
+            "access_token" to accessToken,
             "expiration" to state.accessTokenExpiresOn,
             "client_id" to clientId,
             "proxy_url" to proxyExternalUrl,

@@ -144,7 +144,9 @@ class TeslaOAuthService(
         val state = serializer.readState()
             ?: throw IllegalStateException("Not authenticated. Visit /internal/auth to begin OAuth flow.")
 
-        if (System.currentTimeMillis() >= state.accessTokenExpiresOn) {
+        // Refresh 5 minutes before expiration to avoid race conditions with consumers
+        val bufferMs = 5 * 60 * 1000L
+        if (System.currentTimeMillis() >= (state.accessTokenExpiresOn - bufferMs)) {
             refreshAccessToken(locale)
             return serializer.readState()!!.accessToken
         }
