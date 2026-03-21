@@ -12,18 +12,19 @@ class TokenRefreshScheduler(
     private val logger = LoggerFactory.getLogger(TokenRefreshScheduler::class.java)
 
     /**
-     * Proactively refresh the access token every 4 hours.
-     * Tesla access tokens last ~8 hours, so refreshing at 4h keeps them
-     * always valid and prevents consumers from needing to refresh independently.
+     * Proactively force-refresh the access token every 2 hours.
+     * Tesla access tokens last ~8 hours. By force-refreshing at 2h intervals,
+     * the token always has ~8h of remaining life when consumers read it,
+     * so HA should never need to refresh independently and trigger token rotation.
      */
-    @Scheduled(fixedDelay = 4 * 60 * 60 * 1000L, initialDelay = 60_000L)
+    @Scheduled(fixedDelay = 2 * 60 * 60 * 1000L, initialDelay = 60_000L)
     fun refreshTokenPeriodically() {
         if (!oAuthService.isAuthenticated()) return
 
         try {
-            logger.info("Scheduled token refresh starting...")
-            oAuthService.getAccessToken()
-            logger.info("Scheduled token refresh completed.")
+            logger.info("Scheduled proactive token refresh starting...")
+            oAuthService.forceRefresh()
+            logger.info("Scheduled proactive token refresh completed.")
         } catch (e: Exception) {
             logger.error("Scheduled token refresh failed: {}", e.message, e)
         }

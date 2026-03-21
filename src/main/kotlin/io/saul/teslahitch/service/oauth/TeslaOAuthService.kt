@@ -12,10 +12,10 @@ import org.springframework.util.LinkedMultiValueMap
 import org.springframework.web.client.RestTemplate
 import java.net.URLEncoder
 import java.security.SecureRandom
-import java.time.ZoneOffset.UTC
-import java.time.ZonedDateTime
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
-private const val STANDARD_REFRESH_TOKEN_DURATION_IN_MONTHS = 3L
+private const val REFRESH_BUFFER_MS = 5 * 60 * 1000L // refresh 5 min before expiry
 
 @Service
 class TeslaOAuthService(
@@ -27,6 +27,7 @@ class TeslaOAuthService(
     private val objectMapper: ObjectMapper
 ) {
     private val logger = LoggerFactory.getLogger(TeslaOAuthService::class.java)
+    private val refreshLock = ReentrantLock()
 
     companion object {
         private const val AUTH_URL = "https://auth.tesla.com/oauth2/v3"
@@ -97,19 +98,18 @@ class TeslaOAuthService(
             accessToken = json.get("access_token").asText(),
             accessTokenExpiresOn = now + (json.get("expires_in").asLong() * 1000),
             refreshToken = json.get("refresh_token").asText(),
-            refreshTokenExpiresOn = now + (90L * 24 * 60 * 60 * 1000) // 3 months per Tesla docs // 30 days
+            refreshTokenExpiresOn = now + (90L * 24 * 60 * 60 * 1000)
         )
 
         serializer.updateState(state)
         logger.info("OAuth tokens stored successfully.")
     }
 
-    fun refreshAccessToken(locale: TeslaApiLocale = TeslaApiLocale.NAAP) {
-        val currentState = serializer.readState()
-            ?: throw IllegalStateException("No OAuth state found. Please authenticate first.")
-
-        logger.info("Refreshing access token...")
-
+    /**
+     * Sends a refresh_token grant to Tesla and persists the new state.
+     * Must be called while holding refreshLock.
+     */
+    private fun doRefresh(currentState: TeslaOAuthState) {
         val headers = HttpHeaders()
         headers.contentType = MediaType.APPLICATION_FORM_URLENCODED
 
@@ -122,6 +122,7 @@ class TeslaOAuthService(
         val response = restTemplate.postForEntity(TOKEN_URL, request, String::class.java)
 
         if (!response.statusCode.is2xxSuccessful || response.body == null) {
+            logger.error("Token refresh failed: {} - {}", response.statusCode, response.body)
             throw RuntimeException("Token refresh failed: ${response.statusCode} - ${response.body}")
         }
 
@@ -133,25 +134,58 @@ class TeslaOAuthService(
             accessToken = json.get("access_token").asText(),
             accessTokenExpiresOn = now + (json.get("expires_in").asLong() * 1000),
             refreshToken = json.get("refresh_token")?.asText() ?: currentState.refreshToken,
-            refreshTokenExpiresOn = now + (90L * 24 * 60 * 60 * 1000) // 3 months per Tesla docs
+            refreshTokenExpiresOn = now + (90L * 24 * 60 * 60 * 1000)
         )
 
         serializer.updateState(newState)
-        logger.info("Access token refreshed successfully.")
+        logger.info("Access token refreshed. New token expires in {} seconds.", json.get("expires_in").asLong())
+    }
+
+    /**
+     * Refreshes the access token if it's close to expiring.
+     * Guarded by a lock so only one thread refreshes at a time — prevents
+     * double-refresh race conditions that would send a rotated refresh token.
+     */
+    fun refreshAccessToken(locale: TeslaApiLocale = TeslaApiLocale.NAAP) {
+        refreshLock.withLock {
+            // Re-check after acquiring lock — another thread may have already refreshed
+            val currentState = serializer.readState()
+                ?: throw IllegalStateException("No OAuth state found. Please authenticate first.")
+
+            if (System.currentTimeMillis() < (currentState.accessTokenExpiresOn - REFRESH_BUFFER_MS)) {
+                logger.info("Token was already refreshed by another thread, skipping.")
+                return
+            }
+
+            doRefresh(currentState)
+        }
     }
 
     fun getAccessToken(locale: TeslaApiLocale = TeslaApiLocale.NAAP): String {
         val state = serializer.readState()
             ?: throw IllegalStateException("Not authenticated. Visit /internal/auth to begin OAuth flow.")
 
-        // Refresh 5 minutes before expiration to avoid race conditions with consumers
-        val bufferMs = 5 * 60 * 1000L
-        if (System.currentTimeMillis() >= (state.accessTokenExpiresOn - bufferMs)) {
+        if (System.currentTimeMillis() >= (state.accessTokenExpiresOn - REFRESH_BUFFER_MS)) {
             refreshAccessToken(locale)
             return serializer.readState()!!.accessToken
         }
 
         return state.accessToken
+    }
+
+    /**
+     * Force a refresh regardless of current token expiration.
+     * Used by the scheduler to proactively keep tokens fresh so that
+     * consumers never need to refresh independently.
+     */
+    fun forceRefresh(locale: TeslaApiLocale = TeslaApiLocale.NAAP) {
+        refreshLock.withLock {
+            val currentState = serializer.readState()
+                ?: throw IllegalStateException("No OAuth state found. Please authenticate first.")
+
+            logger.info("Force-refreshing access token (scheduled)...")
+            doRefresh(currentState)
+        }
     }
 
     fun isAuthenticated(): Boolean {

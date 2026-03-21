@@ -64,7 +64,6 @@ class PublicController(
             ?: throw ResponseStatusException(HttpStatus.PRECONDITION_FAILED, "OAuth not completed. Visit /internal/auth on the trusted port first.")
 
         return mapOf(
-            "refresh_token" to state.refreshToken,
             "access_token" to accessToken,
             "expiration" to state.accessTokenExpiresOn,
             "client_id" to clientId,
