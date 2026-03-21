@@ -14,8 +14,10 @@ class TeslaOAuthStateSerializer(
 ) {
     private val logger = LoggerFactory.getLogger(TeslaOAuthStateSerializer::class.java)
     private val file = File(configDir, "auth.json")
+    @Volatile
     var current: TeslaOAuthState? = null
 
+    @Synchronized
     fun updateState(state: TeslaOAuthState) {
         logger.info("Storing current AuthState.")
         file.parentFile?.mkdirs()
@@ -23,9 +25,11 @@ class TeslaOAuthStateSerializer(
         current = state
     }
 
+    @Synchronized
     fun readState(): TeslaOAuthState? {
-        if (current != null && System.currentTimeMillis() < current!!.refreshTokenExpiresOn) {
-            return current
+        val cached = current
+        if (cached != null && System.currentTimeMillis() < cached.refreshTokenExpiresOn) {
+            return cached
         }
 
         try {
@@ -45,6 +49,7 @@ class TeslaOAuthStateSerializer(
         }
     }
 
+    @Synchronized
     fun wipeState() {
         file.delete()
         current = null
