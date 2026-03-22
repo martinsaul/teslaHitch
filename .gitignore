@@ -41,3 +41,6 @@ out/
 
 ### Secrets ###
 secrets/
+
+### Local context ###
+context.md
