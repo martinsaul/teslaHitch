@@ -43,7 +43,7 @@ class PrivateController(
         oAuthService.exchangeCodeForToken(code)
 
         logger.info("OAuth complete. Registering public key with Tesla...")
-        partnerService.registerPartner()
+        partnerService.registerPartner(force = true)
 
         return mapOf("status" to "authenticated", "message" to "You're in! Tesla account connected and public key registered.")
     }

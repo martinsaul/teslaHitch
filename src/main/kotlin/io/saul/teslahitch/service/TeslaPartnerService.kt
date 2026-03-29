@@ -10,12 +10,14 @@ import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import org.springframework.util.LinkedMultiValueMap
 import org.springframework.web.client.RestTemplate
+import java.io.File
 
 @Service
 class TeslaPartnerService(
     @Value("\${tesla.oauth.clientId}") private val clientId: String,
     @Value("\${tesla.oauth.clientSecret}") private val clientSecret: String,
     @Value("\${tesla.callback.hostname:tesla.zenithnetwork.com}") private val domain: String,
+    @Value("\${tesla.config.dir:/config}") private val configDir: String,
     private val restTemplate: RestTemplate,
     private val objectMapper: ObjectMapper
 ) {
@@ -24,6 +26,15 @@ class TeslaPartnerService(
     @Volatile
     private var _registered: Boolean = false
     val isRegistered: Boolean get() = _registered
+
+    private val registrationFile: File get() = File(configDir, "partner-registered.json")
+
+    init {
+        if (registrationFile.exists()) {
+            _registered = true
+            logger.info("Partner registration state restored from disk — skipping re-registration.")
+        }
+    }
 
     companion object {
         private const val TOKEN_URL = "https://auth.tesla.com/oauth2/v3/token"
@@ -36,13 +47,28 @@ class TeslaPartnerService(
         )
     }
 
-    fun registerPartner(locale: TeslaApiLocale = TeslaApiLocale.NAAP) {
+    fun registerPartner(locale: TeslaApiLocale = TeslaApiLocale.NAAP, force: Boolean = false) {
+        if (_registered && !force) {
+            logger.info("Partner already registered, skipping. Use force=true to re-register.")
+            return
+        }
         try {
             val partnerToken = obtainPartnerToken(locale)
             registerDomain(partnerToken, locale)
             _registered = true
+            persistRegistration()
         } catch (e: Exception) {
             logger.error("Partner registration failed: {}", e.message, e)
+        }
+    }
+
+    private fun persistRegistration() {
+        try {
+            val data = mapOf("domain" to domain, "registeredAt" to System.currentTimeMillis())
+            registrationFile.writeText(objectMapper.writeValueAsString(data))
+            logger.info("Partner registration state saved to disk.")
+        } catch (e: Exception) {
+            logger.warn("Failed to persist registration state: {}", e.message)
         }
     }
 
