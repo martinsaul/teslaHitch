@@ -93,7 +93,8 @@ class TeslaPartnerService(
         }
 
         val json = objectMapper.readTree(response.body)
-        val token = json.get("access_token").asText()
+        val token = json.get("access_token")?.asText()
+            ?: throw IllegalStateException("Missing access_token in partner token response")
         logger.info("Partner token obtained successfully.")
         return token
     }

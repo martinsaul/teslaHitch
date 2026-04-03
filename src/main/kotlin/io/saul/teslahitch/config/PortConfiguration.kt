@@ -45,7 +45,8 @@ class PortConfiguration {
         if (!defaultPorts.contains(trustedPort)) {
             val connector: Connector = Connector("org.apache.coyote.http11.Http11NioProtocol")
             connector.scheme = "http"
-            connector.port = trustedPort!!.toInt()
+            connector.port = trustedPort?.toIntOrNull()
+                ?: throw IllegalArgumentException("Invalid trustedPort value: $trustedPort")
             return arrayOf(connector)
         } else {
             return arrayOf()

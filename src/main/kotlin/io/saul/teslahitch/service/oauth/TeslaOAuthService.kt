@@ -1,7 +1,6 @@
 package io.saul.teslahitch.service.oauth
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.google.common.hash.Hashing
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpEntity
@@ -49,7 +48,7 @@ class TeslaOAuthService(
         private fun generateNonce(): String {
             val bytes = ByteArray(32)
             random.nextBytes(bytes)
-            return Hashing.sha256().hashBytes(bytes).toString()
+            return bytes.joinToString("") { "%02x".format(it) }
         }
     }
 
@@ -87,17 +86,24 @@ class TeslaOAuthService(
         val response = restTemplate.postForEntity(TOKEN_URL, request, String::class.java)
 
         if (!response.statusCode.is2xxSuccessful || response.body == null) {
-            throw RuntimeException("Token exchange failed: ${response.statusCode} - ${response.body}")
+            throw RuntimeException("Token exchange failed: ${response.statusCode}")
         }
 
         val json = objectMapper.readTree(response.body)
         val now = System.currentTimeMillis()
 
+        val accessToken = json.get("access_token")?.asText()
+            ?: throw IllegalStateException("Missing access_token in token exchange response")
+        val expiresIn = json.get("expires_in")?.asLong()
+            ?: throw IllegalStateException("Missing expires_in in token exchange response")
+        val refreshToken = json.get("refresh_token")?.asText()
+            ?: throw IllegalStateException("Missing refresh_token in token exchange response")
+
         val state = TeslaOAuthState(
             createdOn = now,
-            accessToken = json.get("access_token").asText(),
-            accessTokenExpiresOn = now + (json.get("expires_in").asLong() * 1000),
-            refreshToken = json.get("refresh_token").asText(),
+            accessToken = accessToken,
+            accessTokenExpiresOn = now + (expiresIn * 1000),
+            refreshToken = refreshToken,
             refreshTokenExpiresOn = now + (90L * 24 * 60 * 60 * 1000)
         )
 
@@ -122,23 +128,28 @@ class TeslaOAuthService(
         val response = restTemplate.postForEntity(TOKEN_URL, request, String::class.java)
 
         if (!response.statusCode.is2xxSuccessful || response.body == null) {
-            logger.error("Token refresh failed: {} - {}", response.statusCode, response.body)
-            throw RuntimeException("Token refresh failed: ${response.statusCode} - ${response.body}")
+            logger.error("Token refresh failed: {}", response.statusCode)
+            throw RuntimeException("Token refresh failed: ${response.statusCode}")
         }
 
         val json = objectMapper.readTree(response.body)
         val now = System.currentTimeMillis()
 
+        val accessToken = json.get("access_token")?.asText()
+            ?: throw IllegalStateException("Missing access_token in refresh response")
+        val expiresIn = json.get("expires_in")?.asLong()
+            ?: throw IllegalStateException("Missing expires_in in refresh response")
+
         val newState = TeslaOAuthState(
             createdOn = now,
-            accessToken = json.get("access_token").asText(),
-            accessTokenExpiresOn = now + (json.get("expires_in").asLong() * 1000),
+            accessToken = accessToken,
+            accessTokenExpiresOn = now + (expiresIn * 1000),
             refreshToken = json.get("refresh_token")?.asText() ?: currentState.refreshToken,
             refreshTokenExpiresOn = now + (90L * 24 * 60 * 60 * 1000)
         )
 
         serializer.updateState(newState)
-        logger.info("Access token refreshed. New token expires in {} seconds.", json.get("expires_in").asLong())
+        logger.info("Access token refreshed. Expires in {} seconds.", expiresIn)
     }
 
     /**
@@ -153,7 +164,7 @@ class TeslaOAuthService(
                 ?: throw IllegalStateException("No OAuth state found. Please authenticate first.")
 
             if (System.currentTimeMillis() < (currentState.accessTokenExpiresOn - REFRESH_BUFFER_MS)) {
-                logger.info("Token was already refreshed by another thread, skipping.")
+                logger.debug("Token was already refreshed by another thread, skipping.")
                 return
             }
 
@@ -167,7 +178,8 @@ class TeslaOAuthService(
 
         if (System.currentTimeMillis() >= (state.accessTokenExpiresOn - REFRESH_BUFFER_MS)) {
             refreshAccessToken(locale)
-            return serializer.readState()!!.accessToken
+            return serializer.readState()?.accessToken
+                ?: throw IllegalStateException("Token refresh completed but state is null")
         }
 
         return state.accessToken
