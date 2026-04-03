@@ -23,8 +23,6 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.18.0")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
-    implementation("com.google.guava:guava:33.3.1-jre")
-
     // BouncyCastle for certificate generation
     implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
 

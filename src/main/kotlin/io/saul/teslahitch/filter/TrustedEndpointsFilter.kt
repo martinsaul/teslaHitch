@@ -1,12 +1,10 @@
 package io.saul.teslahitch.filter
 
 import jakarta.servlet.*
-import org.apache.catalina.connector.RequestFacade
-import org.apache.catalina.connector.ResponseFacade
-import org.slf4j.Logger
+import jakarta.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
 import java.io.IOException
-import jakarta.servlet.Filter
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
@@ -16,41 +14,47 @@ import org.springframework.stereotype.Component
 class TrustedEndpointsFilter internal constructor(
     @Value("\${server.trustedPort:null}") trustedPort: String?,
     @Value("\${server.trustedPathPrefix:null}") trustedPathPrefix: String?
-) :
-    Filter {
-    private var trustedPortNum = 0
-    private var trustedPathPrefix: String? = null
-    private val log: Logger = LoggerFactory.getLogger(javaClass.name)
+) : Filter {
+    private val trustedPortNum: Int
+    private val trustedPathPrefix: String?
+    private val logger = LoggerFactory.getLogger(TrustedEndpointsFilter::class.java)
 
     init {
-        if (trustedPort != null && trustedPathPrefix != null && "null" != trustedPathPrefix) {
-            trustedPortNum = trustedPort.toInt()
+        if (trustedPort != null && trustedPathPrefix != null && trustedPathPrefix != "null") {
+            trustedPortNum = trustedPort.toIntOrNull() ?: 0
             this.trustedPathPrefix = trustedPathPrefix
+        } else {
+            trustedPortNum = 0
+            this.trustedPathPrefix = null
         }
     }
 
     @Throws(IOException::class, ServletException::class)
     override fun doFilter(servletRequest: ServletRequest, servletResponse: ServletResponse, filterChain: FilterChain) {
-        if (trustedPortNum != 0) {
-            if (isRequestForTrustedEndpoint(servletRequest) && servletRequest.localPort != trustedPortNum) {
-                log.warn("denying request for trusted endpoint on untrusted port")
-                (servletResponse as ResponseFacade).status = 404
-                servletResponse.getOutputStream().close()
-                return
-            }
+        if (trustedPortNum != 0 && trustedPathPrefix != null) {
+            val httpRequest = servletRequest as? HttpServletRequest
+            val httpResponse = servletResponse as? HttpServletResponse
 
-            if (!isRequestForTrustedEndpoint(servletRequest) && servletRequest.localPort == trustedPortNum) {
-                log.warn("denying request for untrusted endpoint on trusted port")
-                (servletResponse as ResponseFacade).status = 404
-                servletResponse.getOutputStream().close()
-                return
+            if (httpRequest != null && httpResponse != null) {
+                val uri = httpRequest.requestURI
+                val port = servletRequest.localPort
+
+                if (uri.startsWith(trustedPathPrefix) && port != trustedPortNum) {
+                    logger.warn("Denying request for trusted endpoint {} on untrusted port {}", uri, port)
+                    httpResponse.status = 404
+                    httpResponse.outputStream.close()
+                    return
+                }
+
+                if (!uri.startsWith(trustedPathPrefix) && port == trustedPortNum) {
+                    logger.warn("Denying request for untrusted endpoint {} on trusted port {}", uri, port)
+                    httpResponse.status = 404
+                    httpResponse.outputStream.close()
+                    return
+                }
             }
         }
 
         filterChain.doFilter(servletRequest, servletResponse)
-    }
-
-    private fun isRequestForTrustedEndpoint(servletRequest: ServletRequest): Boolean {
-        return (servletRequest as RequestFacade).requestURI.startsWith(trustedPathPrefix!!)
     }
 }
