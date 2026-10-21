@@ -15,12 +15,16 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter
 import org.springframework.web.client.RestTemplate
 
 @Configuration
 class BeanConfiguration {
 
+    // Jackson 2 mapper used for auth.json / partner state persistence and Tesla API parsing.
+    // Kept on Jackson 2 deliberately (INFRA-117) so the on-disk OAuth state format is unchanged.
+    // No custom MVC message converter is registered: on Spring Boot 4 a user-supplied
+    // converter bean is ordered ahead of StringHttpMessageConverter, which JSON-quotes the
+    // String bodies (raw Tesla JSON passthrough) returned by the controllers.
     @Bean
     fun objectMapper(): ObjectMapper {
         return Jackson2ObjectMapperBuilder()
@@ -29,13 +33,6 @@ class BeanConfiguration {
             .setVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.ANY)
             .setVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY)
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-    }
-
-    @Bean
-    fun mappingJackson2HttpMessageConverter(): MappingJackson2HttpMessageConverter {
-        val jsonConverter = MappingJackson2HttpMessageConverter()
-        jsonConverter.objectMapper = objectMapper()
-        return jsonConverter
     }
 
     @Bean

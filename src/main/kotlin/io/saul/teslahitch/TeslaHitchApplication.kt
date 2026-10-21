@@ -21,7 +21,7 @@ class StartupRegistration(
 ) : ApplicationRunner {
     private val logger = org.slf4j.LoggerFactory.getLogger(StartupRegistration::class.java)
 
-    override fun run(args: ApplicationArguments?) {
+    override fun run(args: ApplicationArguments) {
         if (!oAuthService.isAuthenticated()) return
 
         Thread {
